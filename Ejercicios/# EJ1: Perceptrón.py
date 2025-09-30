@@ -46,30 +46,30 @@ import torch.optim as optim
 
 def train_logistic_regression_torch(X, y, learning_rate, num_epochs):
     n,d = X.shape
-    w = torch.zeros(d, requires_grad=True)
-    b = torch.zeros(1, requires_grad=True)
 
     model = nn.Sequential(
         nn.Linear(d, 1),
         nn.Sigmoid()
     )
 
-    criterion = nn.BCELoss()  # Binary Cross Entropy Loss
-    optimizer = optim.SGD([w, b], lr=learning_rate)
+    criterion = nn.BCELoss()
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
     for _ in range(num_epochs):
-        y_pred = model(X )
-        loss = criterion(y_pred, y)
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+        y_pred = model(X)  # Calculates the output of the model
+        loss = criterion(y_pred, y)  # Calculates the loss (grafo de pérdida)
+        loss.backward() # Backpropagation -- Calcula el gradiente de la función de pérdida respecto a los parámetros del modelo (backpropagation en el grafo)
+        optimizer.step() # Updates the model parameters
+        optimizer.zero_grad() # Sets the gradients of the model parameters to zero
+        # Early stopping
+        if loss < 0.0001:
+            break
 
-    return w.detach().numpy(), b.detach().numpy()
+    return model[0].weight.detach().numpy(), model[0].bias.detach().numpy()
 
-
-#Example usage
+# Example usage
 X = torch.tensor([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=torch.float32)
-y = torch.tensor([0, 0, 0, 1], dtype=torch.float32)
+y = torch.tensor([[0], [0], [0], [1]], dtype=torch.float32)  # <- corregido
 
 learning_rate = 0.1
 num_epochs = 1000
