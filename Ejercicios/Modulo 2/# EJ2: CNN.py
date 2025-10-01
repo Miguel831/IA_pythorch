@@ -26,12 +26,30 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+from torch.cuda.amp import autocast, GradScaler
 
 
-# 1. Load the dataset
+
+# Loggin in tensorboard
+
+from torch.utils.tensorboard import SummaryWriter
+import os
+import shutil
+
+
+# Load the dataset
 
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+
+
+# Loggin in tensorboard
+
+from torch.utils.tensorboard import SummaryWriter
+import os
+import shutil
+
+
 
 transform = transforms.Compose([
     transforms.ToTensor(),                    # convierte a tensor en [0,1]
@@ -47,8 +65,6 @@ test_loader = DataLoader(test_ds, batch_size=1000, shuffle=False, num_workers=4,
 
 
 # 2. Define the model
-
-import torch.nn as nn
 
 class CNN(nn.Module):
     def __init__(self):
@@ -80,42 +96,8 @@ class CNN(nn.Module):
     
 
 
-# 3. Define the loss function
-
-criterion = nn.CrossEntropyLoss()
-
-
-# 4. Define the optimizer
-
-# optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-
-# 5. Train the model
-
-
-# def train(model, train_loader, optimizer, criterion, device, epoch):
-#     model.train()
-#     for batch_idx, (data, target) in enumerate(train_loader):
-#         data, target = data.to(device), target.to(device)
-#         optimizer.zero_grad()
-#         output = model(data)
-#         loss = criterion(output, target)
-#         loss.backward()
-#         optimizer.step()
-
-#         # Logging
-#         global_step = epoch * len(train_loader) + batch_idx
-#         writer.add_scalar("Loss/train", loss.item(), global_step)
-#         writer.add_scalar("Learning_rate", optimizer.param_groups[0]['lr'], global_step)
-
-#         if batch_idx % 100 == 0:
-#             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-#                 epoch, batch_idx * len(data), len(train_loader.dataset),
-#                 100. * batch_idx / len(train_loader), loss.item()))
-
-
 #Train the model optimizad with AMP
-from torch.cuda.amp import autocast, GradScaler
+
 
 scaler = GradScaler()
 def train(model, train_loader, optimizer, criterion, device, epoch):
@@ -192,11 +174,7 @@ def save_model(model, path, best_accuracy):
 }, path)
 
 
-# Loggin in tensorboard
 
-from torch.utils.tensorboard import SummaryWriter
-import os
-import shutil
 
 
 # Early stopping
@@ -241,8 +219,10 @@ if __name__ == '__main__':
 
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     model = CNN().to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
 
 
     early_stopper = EarlyStopping(patience=3)
