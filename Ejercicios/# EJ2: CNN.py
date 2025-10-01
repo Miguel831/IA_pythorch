@@ -13,8 +13,8 @@ Goals:
 Requirements:
 - Early stopping - 
 - Save best model - 
-- Logging in tensorboard
-- AMP
+- Logging in tensorboard -
+- AMP - 
 
 """
 
@@ -92,30 +92,61 @@ criterion = nn.CrossEntropyLoss()
 
 # 5. Train the model
 
+
+# def train(model, train_loader, optimizer, criterion, device, epoch):
+#     model.train()
+#     for batch_idx, (data, target) in enumerate(train_loader):
+#         data, target = data.to(device), target.to(device)
+#         optimizer.zero_grad()
+#         output = model(data)
+#         loss = criterion(output, target)
+#         loss.backward()
+#         optimizer.step()
+
+#         # Logging
+#         global_step = epoch * len(train_loader) + batch_idx
+#         writer.add_scalar("Loss/train", loss.item(), global_step)
+#         writer.add_scalar("Learning_rate", optimizer.param_groups[0]['lr'], global_step)
+
+#         if batch_idx % 100 == 0:
+#             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+#                 epoch, batch_idx * len(data), len(train_loader.dataset),
+#                 100. * batch_idx / len(train_loader), loss.item()))
+
+
+#Train the model optimizad with AMP
+from torch.cuda.amp import autocast, GradScaler
+
+scaler = GradScaler()
 def train(model, train_loader, optimizer, criterion, device, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output, target)
-        loss.backward()
-        optimizer.step()
+
+        with autocast():
+            output = model(data)
+            loss = criterion(output, target)
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+
+        # Logging
+        global_step = epoch * len(train_loader) + batch_idx
+        writer.add_scalar("Loss/train", loss.item(), global_step)
+        writer.add_scalar("Learning_rate", optimizer.param_groups[0]['lr'], global_step)
 
         if batch_idx % 100 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
-        # Early stopping  
-        if loss < 0.0001:
-            print("Early stopping")
-            break
-
 
 # 6. Evaluate the model
 
-def evaluate(model, test_loader, criterion, device, best_acuracy=0):
+def evaluate(model, test_loader, criterion, device, epoch, best_accuracy=0):
     model.eval()
     test_loss = 0
     correct = 0
@@ -131,45 +162,101 @@ def evaluate(model, test_loader, criterion, device, best_acuracy=0):
 
     accuracy = 100. * correct / len(test_loader.dataset)
 
+    # Logging
+    writer.add_scalar("Loss/test", test_loss, epoch)
+    writer.add_scalar("Accuracy/test", accuracy, epoch)
+
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         accuracy))
     
-    if accuracy >= best_acuracy:
-        best_acuracy = accuracy
-        save_model(model, 'best_model.pth')
+    if accuracy >= best_accuracy:
+        best_accuracy = accuracy
+        save_model(model, 'best_model.pth', best_accuracy)
+
+    if early_stopper is not None:
+        early_stopper(accuracy, model)
+
+    return best_accuracy
 
 
 
 # Save model
 
-def save_model(model, path):
-    torch.save(model.state_dict(), path)
+def save_model(model, path, best_accuracy):
+    torch.save({
+    'epoch': epoch,
+    'model_state': model.state_dict(),
+    'optimizer_state': optimizer.state_dict(),
+    'best_accuracy': best_accuracy
+}, path)
 
 
 # Loggin in tensorboard
 
 from torch.utils.tensorboard import SummaryWriter
+import os
+import shutil
 
-writer = SummaryWriter('runs/mnist_cnn')
+
+# Early stopping
+
+class EarlyStopping:
+    def __init__(self, patience=3, verbose=True):
+        self.patience = patience      # número de épocas sin mejora antes de parar
+        self.verbose = verbose
+        self.best_accuracy = 0
+        self.counter = 0
+        self.early_stop = False
+
+    def __call__(self, accuracy, model):
+        if accuracy > self.best_accuracy:
+            self.best_accuracy = accuracy
+            self.counter = 0
+            # Guardar el mejor modelo automáticamente
+            torch.save(model.state_dict(), 'best_model.pth')
+            if self.verbose:
+                print(f"Mejora detectada: {accuracy:.2f}%, modelo guardado.")
+        else:
+            self.counter += 1
+            if self.verbose:
+                print(f"No mejora en {self.counter} época(s) consecutivas.")
+            if self.counter >= self.patience:
+                if self.verbose:
+                    print("Early stopping activado por falta de mejora.")
+                self.early_stop = True
+
 
 
 # main
 
 if __name__ == '__main__':
+
+    logdir = 'runs/cnn_mnist'
+
+    if  os.path.exists(logdir):
+        shutil.rmtree(logdir)
+
+    writer = SummaryWriter(logdir)
+
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = CNN().to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 
+    early_stopper = EarlyStopping(patience=3)
+
+
     for epoch in range(1, 6):
         train(model, train_loader, optimizer, criterion, device, epoch)
-        evaluate(model, test_loader, criterion, device)
+        evaluate(model, test_loader, criterion, device, epoch)
 
-        writer.add_scalar('Loss/train', loss, epoch * len(train_loader) + batch_idx)
-        writer.add_scalar('Learning_rate/train', optimizer.param_groups[0]['lr'], epoch * len(train_loader) + batch_idx)
-        writer.close()
+        if early_stopper.early_stop:
+            break
 
-        
+    writer.close()
+
+
 
     
