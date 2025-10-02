@@ -12,9 +12,9 @@ Requirements:
 - 2 - 4 hidden layers -
 - BachNormalization -
 - Dropout - 
-- Esarly stopping
-- Save best model
-- Tensorboard logs
+- Esarly stopping -
+- Save best model -
+- Tensorboard logs -
 - Inicialize weights
 
 Compare optimizers:
@@ -54,6 +54,8 @@ import shutil
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
+from torch.utils.data import random_split
+
 
 # Loggin in tensorboard
 
@@ -64,8 +66,9 @@ import shutil
 
 # Load data --> FashionMNIST
 
-train_dataset = datasets.FashionMNIST(root='./data', train=True, transform=transforms.ToTensor(), download=True)
-val_dataset = datasets.FashionMNIST(root='./data', train=True, transform=transforms.ToTensor())
+train_dataset_full = datasets.FashionMNIST(root='./data', train=True, 
+                                           transform=transforms.ToTensor(), download=True)
+train_dataset, val_dataset = random_split(train_dataset_full, [50000, 10000])
 test_dataset = datasets.FashionMNIST(root='./data', train=False, transform=transforms.ToTensor())
 
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
@@ -109,13 +112,13 @@ class MLP(nn.Module):
 
 # Initialize the model
 
-model = MLP()
+#model = MLP()
 
 
 # Define the loss function and optimizer
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.001)
+#criterion = nn.CrossEntropyLoss()
+#optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.001)
 
 
 # Train the model
@@ -148,7 +151,7 @@ def train(model, train_loader, optimizer, criterion, device, epoch):
 
 # Evaluate the model
 
-def evaluate(model, test_loader, criterion, device, epoch):
+def evaluate(model, test_loader, criterion, device, epoch, best_accuracy=0):
     model.eval()
     test_loss = 0
     correct = 0
@@ -168,20 +171,25 @@ def evaluate(model, test_loader, criterion, device, epoch):
     writer.add_scalar("Loss/test", test_loss, epoch)
     writer.add_scalar("Accuracy/test", accuracy, epoch)
 
+    if accuracy >= best_accuracy:
+        best_accuracy = accuracy
+        save_model(model, 'Modulo 3/best_model.pth', best_accuracy, epoch)
+
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         accuracy))
     
+    return accuracy, test_loss
+
+
 # Save model
 
-def save_model(model, path, best_accuracy):
+def save_model(model, path, best_accuracy, epoch):
     torch.save({
-    'epoch': epoch,
-    'model_state': model.state_dict(),
-    'optimizer_state': optimizer.state_dict(),
-    'best_accuracy': best_accuracy
-}, path)
-
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'best_accuracy': best_accuracy
+    }, path)
 
 # Early stopping
 
@@ -198,7 +206,7 @@ class EarlyStopping:
             self.best_accuracy = accuracy
             self.counter = 0
             # Guardar el mejor modelo automáticamente
-            torch.save(model.state_dict(), 'best_model.pth')
+            torch.save(model.state_dict(), 'Modulo 3/best_model.pth')
             if self.verbose:
                 print(f"Mejora detectada: {accuracy:.2f}%, modelo guardado.")
         else:
@@ -209,3 +217,65 @@ class EarlyStopping:
                 if self.verbose:
                     print("Early stopping activado por falta de mejora.")
                 self.early_stop = True
+
+
+# Initialize weights
+
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.kaiming_normal_(m.weight)   # para activaciones ReLU
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+
+
+
+# main
+
+if __name__ == '__main__':
+
+    logdir = 'Modulo 3/runs/MLP_Fasion'
+
+    if  os.path.exists(logdir):
+        shutil.rmtree(logdir)
+
+    writer = SummaryWriter(logdir)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model = MLP().to(device)
+    model.apply(init_weights)  # Inicializar pesos
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min',      # monitoreamos loss
+        patience=2,      # esperamos 2 épocas
+        factor=0.5,      # reducimos LR a la mitad
+    )
+    criterion = nn.CrossEntropyLoss()
+
+
+    early_stopper = EarlyStopping(patience=3)
+
+
+    for epoch in range(1, 10):
+        train(model, train_loader, optimizer, criterion, device, epoch)
+
+        accuracy, val_loss = evaluate(model, val_loader, criterion, device, epoch)
+
+        scheduler.step(val_loss)
+
+        if early_stopper.early_stop:
+            break
+
+    writer.close()
+
+    # Final evaluation
+    print("Cargando el mejor modelo guardado...")
+    model.load_state_dict(torch.load('Modulo 3/best_model.pth'))  # cargar el modelo con mejor val_accuracy
+
+    print("Evaluando en el conjunto de TEST...")
+    test_accuracy, test_loss = evaluate(model, test_loader, criterion, device, epoch="final")
+
+    print(f"RESULTADO FINAL EN TEST: Accuracy={test_accuracy:.2f}%, Loss={test_loss:.4f}")
