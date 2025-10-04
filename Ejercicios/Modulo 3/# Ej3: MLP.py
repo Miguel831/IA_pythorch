@@ -206,7 +206,10 @@ class EarlyStopping:
             self.best_accuracy = accuracy
             self.counter = 0
             # Guardar el mejor modelo automáticamente
-            torch.save(model.state_dict(), 'Modulo 3/best_model.pth')
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'best_accuracy': accuracy
+            }, 'Modulo 3/best_model.pth')
             if self.verbose:
                 print(f"Mejora detectada: {accuracy:.2f}%, modelo guardado.")
         else:
@@ -273,9 +276,11 @@ if __name__ == '__main__':
 
     # Final evaluation
     print("Cargando el mejor modelo guardado...")
-    model.load_state_dict(torch.load('Modulo 3/best_model.pth'))  # cargar el modelo con mejor val_accuracy
+    checkpoint = torch.load('Modulo 3/best_model.pth', map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    print(f"Modelo cargado con mejor accuracy: {checkpoint['best_accuracy']:.2f}%")
 
     print("Evaluando en el conjunto de TEST...")
-    test_accuracy, test_loss = evaluate(model, test_loader, criterion, device, epoch="final")
+    test_accuracy, test_loss = evaluate(model, test_loader, criterion, device, epoch)
 
     print(f"RESULTADO FINAL EN TEST: Accuracy={test_accuracy:.2f}%, Loss={test_loss:.4f}")
