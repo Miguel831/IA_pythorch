@@ -80,6 +80,11 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 weights = ResNet18_Weights.DEFAULT
 model = resnet18(weights=weights)  # modelo pre-entrenado, sin head
 
+
+# 
+for param in model.parameters():
+    param.requires_grad = False
+
 # Train head
 model.fc = nn.Linear(in_features=512, out_features=10)  # head, nueva capa
 
@@ -90,7 +95,19 @@ model = model.to(device)
 
 # Define the loss function and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(model.parameters(), lr=0.001)
+optimizer = optim.SGD(model.parameters(), lr=0.001, momentum= 0.9)
+
+
+# Fine-Tuning
+#for name, param in model.named_parameters():
+#    if "layer4" in name or "fc" in name:  # último bloque + fc
+#        param.requires_grad = True
+
+#optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()),
+#                      lr=1e-3, momentum=0.9)
+
+
+
 
 
 # Train head
