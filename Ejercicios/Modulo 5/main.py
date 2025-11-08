@@ -68,29 +68,31 @@ idx_to_token = {idx: token for token, idx in token_to_idx.items()}
 encoded = [token_to_idx[token] for token in tokens]
 
 
-seq_len = 30
+seq_len = 50
 data = []
 
 for i in range(len(encoded) - seq_len):
     x = torch.tensor(encoded[i:i+seq_len])      # entrada
-    y = torch.tensor(encoded[i+seq_len])        # siguiente token
+    y = torch.tensor(encoded[i+seq_len], dtype=torch.long)        # siguiente token
     data.append((x, y))
 
-train_loader = DataLoader(data, batch_size=64, shuffle=True)
 
 
 # Model 
 class LSTMNet(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=3, dropout=0.3):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers=num_layers, batch_first=True, dropout= 0.3)
+        self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers=num_layers, batch_first=True)
+        self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_size, output_size)
     
     def forward(self, x):
-        x = self.embedding(x) 
-        out, (h_n, c_n) = self.lstm(x)
-        out = self.fc(out[:, -1, :])
+        x = self.embedding(x)
+        out, _ = self.lstm(x)
+        out = out[:, -1, :]  # última salida de la secuencia
+        out = self.dropout(out)
+        out = self.fc(out)
         return out
 
 
@@ -153,16 +155,23 @@ val_loader = DataLoader(val_data, batch_size=64, shuffle=False)
 # define the model
 model = LSTMNet(vocab_size=len(vocab), embedding_dim=128, hidden_size=256, output_size=len(vocab))
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 model.to(device)
 
 
 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), weight_decay=1e-3, lr=0.01)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.8)
 
 
+
+
+patience = 3
+counter = 0
 best_loss = float('inf')
+
 
 for epoch in range(10):
     train(model, train_loader, optimizer, criterion, device, 1.0)
@@ -170,9 +179,16 @@ for epoch in range(10):
     val_loss = evaluate(model, val_loader, criterion, device)
     print(f"Epoch {epoch+1} | Val Loss: {val_loss:.4f}")
 
+    scheduler.step(val_loss)
+
     # Guardar el mejor modelo
     if val_loss < best_loss:
         best_loss = val_loss
         torch.save(model.state_dict(), 'best_model.pth')
         print("✅ Mejor modelo guardado")
+    else:
+        counter += 1
+        if counter >= patience:
+            print("⏹️ Early stopping activado")
+            break
 
